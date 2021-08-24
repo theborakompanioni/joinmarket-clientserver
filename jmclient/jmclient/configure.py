@@ -137,7 +137,23 @@ socks5_port = 9050
 #host = darkirc6tqgpnwd3blln3yfv5ckl47eg7llfxkmtovrv7c7iwohhb6ad.onion
 #socks5 = true
 
+[MESSAGING:lightning1]
+type = ln-onion
+# This is a comma separated list (comma can be omitted if only one item).
+# Each item has format pubkey@host:port ; all are required. Host can be
+# a *.onion address (tor v3 only).
+directory-nodes = 03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c5253c55@localhost:7171
+# note that this setting in particular needs dynamic editing in tests of multiple
+# nodes on one machine and this is marked with the special string 'regtest',
+# but for normal running it is just located in your ~/.lightning:
+lightningrpc-path = ~/.lightning/mainnet/lightning-rpc
+# port via which we receive data from the c-lightning plugin:
+passthrough-port = 49100
+
 [MESSAGING:server2]
+# by default the legacy format without a `type` field is
+# understood to be IRC, but you can, optionally, add it:
+# type = irc
 host = irc.hackint.org
 channel = joinmarket-pit
 port = 6697
@@ -454,7 +470,7 @@ def set_config(cfg, bcint=None):
         global_singleton.bc_interface = bcint
 
 
-def get_irc_mchannels():
+def get_mchannels():
     SECTION_NAME = 'MESSAGING'
     # FIXME: remove in future release
     if jm_single().config.has_section(SECTION_NAME):
@@ -465,23 +481,41 @@ def get_irc_mchannels():
         return _get_irc_mchannels_old()
 
     SECTION_NAME += ':'
-    irc_sections = []
+    sections = []
     for s in jm_single().config.sections():
         if s.startswith(SECTION_NAME):
-            irc_sections.append(s)
-    assert irc_sections
+            sections.append(s)
+    assert sections
 
-    fields = [("host", str), ("port", int), ("channel", str), ("usessl", str),
+    irc_fields = [("host", str), ("port", int), ("channel", str), ("usessl", str),
               ("socks5", str), ("socks5_host", str), ("socks5_port", str)]
+    lightning_fields = [("type", str), ("directory-nodes", str),
+                        ("lightningrpc-path", str), ("passthrough-port", int)]
 
     configs = []
-    for section in irc_sections:
+    for section in sections:
+        if jm_single().config.has_option(section, "type"):
+            # legacy IRC configs do not have "type" but just
+            # in case, we'll allow the "irc" type:
+            if not jm_single().config.get(section, "type").lower(
+                ) == "irc":
+                break
         server_data = {}
-        for option, otype in fields:
+        for option, otype in irc_fields:
             val = jm_single().config.get(section, option)
             server_data[option] = otype(val)
         server_data['btcnet'] = get_network()
         configs.append(server_data)
+    for section in sections:
+        if not jm_single().config.has_option(section, "type") or \
+        not jm_single().config.get(section, "type").lower() == "ln-onion":
+            break
+        ln_data = {}
+        for option, otype in lightning_fields:
+            val = jm_single().config.get(section, option)
+            ln_data[option] = otype(val)
+        ln_data['btcnet'] = get_network()
+        configs.append(ln_data)
     return configs
 
 
@@ -617,22 +651,23 @@ def load_program_config(config_path="", bs=None, plugin_services=[]):
     #always exist.
     # FIXME: This check is a best-effort attempt. Certain incorrect section
     # names can pass and so can non-first invalid sections.
-    for s in required_options: #pragma: no cover
+    # TODO: temporarily(?) removed these checks in new ln configs, needs review
+    #for s in required_options: #pragma: no cover
         # check for sections
-        avail = None
-        if not global_singleton.config.has_section(s):
-            for avail in global_singleton.config.sections():
-                if avail.startswith(s):
-                    break
-            else:
-                raise Exception(
-                    "Config file does not contain the required section: " + s)
+   #     avail = None
+   #     if not global_singleton.config.has_section(s):
+   #         for avail in global_singleton.config.sections():
+   #             if avail.startswith(s):
+   #                 break
+   #         else:
+   #             raise Exception(
+   #                 "Config file does not contain the required section: " + s)
         # then check for specific options
-        k = avail or s
-        for o in required_options[s]:
-            if not global_singleton.config.has_option(k, o):
-                raise Exception("Config file does not contain the required "
-                                "option '{}' in section '{}'.".format(o, k))
+   #     k = avail or s
+   #     for o in required_options[s]:
+   #         if not global_singleton.config.has_option(k, o):
+   #             raise Exception("Config file does not contain the required "
+   #                             "option '{}' in section '{}'.".format(o, k))
 
     loglevel = global_singleton.config.get("LOGGING", "console_log_level")
     try:
