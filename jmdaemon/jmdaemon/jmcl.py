@@ -91,10 +91,6 @@ def on_disconnect(plugin, id, **kwargs):
 @plugin.hook("onion_message")
 def on_onion_message(plugin, onion_message, **kwargs):
     send_tcp_message(json.dumps(onion_message).encode("utf-8"))
-    if 'reply_path' not in onion_message:
-        # TODO
-        plugin.log("no reply path")
-        return
     return {"result": "continue"}
 
 def run():
