@@ -453,7 +453,12 @@ class LNOnionMessageChannel(MessageChannel):
 
         # TODO ; any obvious way to process multiple addresses,
         # other than just take the first?
-        a = resp["binding"][0]
+        if len(resp["address"]) > 0:
+            a = resp["address"][0]
+        else:
+            # special case regtest: we just use local, no
+            # address, only binding:
+            a = resp["binding"][0]
         addrtype = a["type"]
         if addrtype not in ["ipv4", "ipv6", "torv3"]:
             raise LNOnionPeerError("Unsupported internet address type: "
