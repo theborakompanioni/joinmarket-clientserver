@@ -38,6 +38,24 @@ http_get ()
     fi
 }
 
+ln_deps_install ()
+{
+    ln_deps=( \
+        'autoconf' \
+        'automake' \
+        'build-essential' \
+        'git' \
+        'libtool' \
+        'libgmp-dev' \
+        'libsqlite3-dev' \
+        'python3-mako' \
+        'net-tools' \
+        'zlib1g-dev' \
+        'libsodium-dev' \
+        'gettext' )
+    deb_deps_install "${ln_deps[@]}"
+}
+
 deps_install ()
 {
     debian_deps=( \
@@ -139,6 +157,7 @@ venv_setup ()
     source "${jm_source}/jmvenv/bin/activate" || return 1
     pip install --upgrade pip
     pip install --upgrade setuptools
+    pip install mako
     deactivate
 }
 
@@ -153,7 +172,11 @@ dep_get ()
     if ! sha256_verify "${pkg_hash}" "${pkg_name}"; then
         return 1
     fi
-    tar -xzf "${pkg_name}" -C ../
+    if [[ $1 == *zip ]]; then
+        unzip "${pkg_name}" -d ../
+    else
+        tar -xzf "${pkg_name}" -C ../
+    fi
     popd
 }
 
@@ -270,6 +293,36 @@ libsecp256k1_install()
     popd
 }
 
+clightning_build ()
+{
+    ./configure \
+        --enable-developer \
+        --enable-experimental-features \
+        --prefix="${jm_root}"
+    $make
+}
+
+clightning_install ()
+{
+    # note: the normal tarball source is broken and must not be used according to:
+    # https://github.com/ElementsProject/lightning/issues/3900#issuecomment-668330656
+    # we use links like:
+    # https://github.com/ElementsProject/lightning/releases/download/v0.10.1/clightning-v0.10.1.zip
+    clightning_version='clightning-v0.10.1'
+    clightning_lib_sha="9271e9e89d60332b66afedbf8d6eab2a4a488782ab400ee1f60667d73c5a9a96"
+    clightning_lib_url='https://github.com/ElementsProject/lightning/releases/download/v0.10.1'
+    if ! dep_get "${clightning_version}.zip" "${clightning_lib_sha}" "${clightning_lib_url}"; then
+        return 1
+    fi
+    pushd "${clightning_version}"
+    if clightning_build; then
+        PREFIX=. $make install
+    else
+        return 1
+    fi
+    popd
+}
+
 libsodium_build ()
 {
     $make uninstall
@@ -367,6 +420,9 @@ parse_flags ()
             --without-qt)
                 with_qt='0'
                 ;;
+            --with-ln-messaging)
+                with_ln_messaging='1'
+                ;;
             "")
                 break
                 ;;
@@ -382,6 +438,7 @@ Options:
 --python, -p                python version (only python3 versions are supported)
 --with-qt                   build the Qt GUI
 --without-qt                don't build the Qt GUI
+--with-ln-messaging     build and use c-lightning for message channels
 "
                 return 1
                 ;;
@@ -464,8 +521,20 @@ main ()
         return 1
     fi
     source "${jm_root}/bin/activate"
+    if [[ ${with_ln_messaging} == "1" ]]; then
+        if ! ln_deps_install; then
+            echo "Lightning dependencies could not be installed. Exiting."
+            return 1
+        fi
+    fi
     mkdir -p "deps/cache"
     pushd deps
+    if [[ ${with_ln_messaging} == "1" ]]; then
+        if ! clightning_install; then
+            echo "c-lightning was required, but not built. Exiting."
+            return 1
+        fi
+    fi
     if ! libsecp256k1_install; then
         echo "libsecp256k1 was not built. Exiting."
         return 1

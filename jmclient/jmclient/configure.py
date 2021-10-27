@@ -138,17 +138,26 @@ socks5_port = 9050
 #socks5 = true
 
 [MESSAGING:lightning1]
+# c-lightning based message channels must have the exact type 'ln-onion'
+# (while the section name above can be MESSAGING:whatever), and there must
+# be only ONE such message channel configured (note the directory servers
+# can be multiple, below):
 type = ln-onion
 # This is a comma separated list (comma can be omitted if only one item).
 # Each item has format pubkey@host:port ; all are required. Host can be
 # a *.onion address (tor v3 only).
 directory-nodes = 03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c5253c55@localhost:7171
-# note that this setting in particular needs dynamic editing in tests of multiple
-# nodes on one machine and this is marked with the special string 'regtest',
-# but for normal running it is just located in your ~/.lightning:
-lightningrpc-path = ~/.lightning/mainnet/lightning-rpc
 # port via which we receive data from the c-lightning plugin:
 passthrough-port = 49100
+# the remaining settings are for the network configuration of the
+# bundled c-lightning node; default will be to use tor. For clearnet,
+# including localhost testing, you can use `addr=localhost:port` for
+# some port you choose, and comment out all the remaining lines:
+addr=localhost:7012
+#proxy=127.0.0.1:9050
+#bind-addr=127.0.0.1:9735
+#addr=statictor:127.0.0.1:9051
+#always-use-proxy=true
 
 [MESSAGING:server2]
 # by default the legacy format without a `type` field is
@@ -490,7 +499,7 @@ def get_mchannels():
     irc_fields = [("host", str), ("port", int), ("channel", str), ("usessl", str),
               ("socks5", str), ("socks5_host", str), ("socks5_port", str)]
     lightning_fields = [("type", str), ("directory-nodes", str),
-                        ("lightningrpc-path", str), ("passthrough-port", int)]
+                        ("passthrough-port", int)]
 
     configs = []
     for section in sections:
@@ -731,7 +740,55 @@ def load_program_config(config_path="", bs=None, plugin_services=[]):
             if not os.path.exists(plogsdir):
                 os.makedirs(plogsdir)
             p.set_log_dir(plogsdir)
+    # if a ln-onion message channel was configured, we start the
+    # packaged/customised lightning daemon with the required ports
+    # in the background at the startup of each script.
+    chans = get_mchannels()
+    lnchans = [x for x in chans if x["type"] == "ln-onion"]
+    assert len(lnchans) < 2
+    if lnchans:
+        jm_ln_dir = os.path.join(global_singleton.datadir, "lightning")
+        if not os.path.exists(jm_ln_dir):
+            os.makedirs(jm_ln_dir)
+        start_ln(lnchans[0], jm_ln_dir)
 
+def start_ln(chaninfo, jm_ln_dir):
+    passthrough_port = str(chaninfo["passthrough-port"])
+    # find where our custom lightningd is:
+    lightningd_loc = os.path.join(sys.prefix, "bin")
+    if os.path.exists(os.path.join(lightningd_loc, "lightningd")):
+        raise Exception("Can't find our custom lightningd")
+    # To get the location of the jmcl plugin, we need the location of this python file:
+    floc = os.path.dirname(os.path.abspath(__file__))
+    jmcl_loc = os.path.join(floc, "..", "..", "jmdaemon", "jmdaemon", "jmcl.py")
+    command = [os.path.join(lightningd_loc, "lightningd"), "--plugin="+jmcl_loc,
+               "--jmport="+passthrough_port, "--lightningdir= " + jm_ln_dir,
+               "--experimental-onion-messages"]
+    # we need to create c-lightning's own config file, in lightningdir/config.
+    # This requires the bitcoin rpc config also:
+    brpc_host = global_singleton.config.get("BLOCKCHAIN", "rpc_host")
+    brpc_port = global_singleton.config.get("BLOCKCHAIN", "rpc_port")
+    brpc_user = global_singleton.config.get("BLOCKCHAIN", "rpc_user")
+    brpc_password = global_singleton.config.get("BLOCKCHAIN", "rpc_password")
+    brpc_net = get_network()
+    lnconfiglines = ["bitcoin-rpcconnect" + brpc_host,
+                     "bitcoin-rpcport=" + brpc_port,
+                     "bitcoin-rpcuser=" + brpc_user,
+                     "bitcoin-rpcpassword=" + brpc_password,
+                     brpc_net,
+                     "experimental-onion-messages",
+                     "addr=localhost:7012"]
+    with open(os.path.join(jm_ln_dir, "config"), "wb") as f:
+        # TODO a bit rude to just always overwrite? But we do manage this one.
+        f.writelines(lnconfiglines)
+    import subprocess
+    subprocess.Popen(command, close_fds=True)
+    # to avoid the user having to bother, this last config var is set
+    # dynamically for them; it's needed by jmdaemon to set up the LNOnionMessageChannel.
+    # To get the location right, we need the network name mainnet/signet/regtest:
+    global_singleton.config.set("MESSAGING:lightning1", "lightningrpc-path",
+                        os.path.join(jm_ln_dir, brpc_net, "lightning-rpc"))
+    
 def load_test_config(**kwargs):
     if "config_path" not in kwargs:
         load_program_config(config_path=".", **kwargs)
