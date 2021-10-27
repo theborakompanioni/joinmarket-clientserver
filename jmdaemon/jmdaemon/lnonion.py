@@ -122,10 +122,10 @@ class TCPPassThroughProtocol(LineReceiver):
         self.factory = factory
 
     def connectionMade(self):
-        print("connection made in jmd")
+        print("connection made in lnonion passthrough")
 
     def connectionLost(self, reason):
-        print("connection lost in jmd")
+        print("connection lost in lnonion passthrough")
 
     def lineReceived(self, line):
         """ Data passed over this TCP socket
@@ -343,7 +343,6 @@ class LNOnionMessageChannel(MessageChannel):
         # keep track of peers. the list will be instances
         # of LNOnionPeer:
         self.peers = []
-        print("dns are: ", configdata["directory-nodes"])
         for dn in configdata["directory-nodes"].split(","):
             # note we don't use a nick for directories:
             self.peers.append(LNOnionPeer.from_location_string(dn,
@@ -398,7 +397,6 @@ class LNOnionMessageChannel(MessageChannel):
         send the message to every known directory node,
         with the PUBLIC message type and nick.
         """
-        print("Pubmsging to: {}".format(msg))
         peerids = self.get_directory_peers()
         for peerid in peerids:
             self._send(peerid, LNOnionMessage(self.get_pubmsg(msg),
@@ -772,6 +770,8 @@ class LNOnionMessageChannel(MessageChannel):
             if p.nick == "":
                 continue
             peerlist.append(p.get_nick_peerlocation_ser())
+        # For testing: dns won't usually participate:
+        peerlist.append(self.self_as_peer.get_nick_peerlocation_ser())
         self._send(requesting_peer.peerid, LNOnionMessage(",".join(
             peerlist), CONTROL_MESSAGE_TYPES["peerlist"]).encode())
 

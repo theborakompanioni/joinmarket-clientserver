@@ -78,7 +78,7 @@ to:
 
 ```
 test -f "/tmp/l$i-$network/lightningd-$network.pid" || \
-                        "$LIGHTNINGD" "--dev-force-privkey=121212121212121212121212121212121212121212121212121212121212121$i" "--plugin=/path/to/joinmarket-clientserver/jmdaemon/jmdaemon/jmcl.py" "--jmport=4910$i" "--lightning-dir=/tmp/l$i-$network" &
+                        "$LIGHTNINGD" "--dev-force-privkey=121212121212121212121212121212121212121212121212121212121212121$i" "--plugin=/path/to/joinmarket-clientserver/jmdaemon/jmdaemon/jmcl.py" "--jmport=4910$i" "--experimental-onion-messages" "--lightning-dir=/tmp/l$i-$network" &
 ```
 
 the weird `--dev-force-privkey` parameter is not necessary, but it's very helpful in tests, since it means every node will always have the same pubkey from run to run. The other two added parameters should be self-explanatory.
@@ -140,8 +140,22 @@ Notice that the lightningrpc-path is changed.
 If we're going to run a "real" instance on signet, we just need to start up one c-lightning node:
 
 ```
-lightningd --signet --daemon --plugin=/path/to/joinmarket-clientserver/jmdaemon/jmdaemon/jmcl.py --jmport=49100
+lightningd --signet --daemon --plugin=/path/to/joinmarket-clientserver/jmdaemon/jmdaemon/jmcl.py --jmport=49100 --experimental-onion-messages
 ```
 
 As far as I know this won't be doing much without you choosing to fund, connect, open channels etc. But this should
 allow you to now do normal Joinmarket operations with peers that have at least one directory node in common.
+
+If you want to run multiple nodes on signet for testing, I can suggest: create a specific subdirectory for each node and then use it *both* as your `--lightning-dir` as per the above regtest setup, *and* as your Joinmarket datadir with `--datadir=` in your Joinmarket script running. That way you will edit the `config` file specific for that Lightning node there, and the `joinmarket.cfg` file in the same directory. It will also house your Joinmarket wallet under `wallets/`, there. What remains would be to specify different `jmcport` and Lightning ports. Here is an example `config` file I have under `~/lntests/node1dir`:
+
+```
+bitcoin-rpcconnect=127.0.0.1
+bitcoin-rpcport=38332
+bitcoin-rpcuser=bitcoinrpc
+bitcoin-rpcpassword=123456abcdef
+signet
+addr=localhost:7011
+```
+
+Notice I'm giving it a custom lightning port (7011), and specifying signet and giving it the right bitcoin rpc setup for my running bitcoind signet node. This is for a one-machine testing setup.
+
