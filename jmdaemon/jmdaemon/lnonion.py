@@ -1,7 +1,7 @@
 from jmdaemon.message_channel import MessageChannel
 from jmdaemon.protocol import COMMAND_PREFIX
 from jmbase.support import get_log, bintohex, hextobin
-from pyln.client import LightningRpc
+from pyln.client import LightningRpc, RpcError
 from io import BytesIO
 import struct
 import json
@@ -499,8 +499,13 @@ class LNOnionMessageChannel(MessageChannel):
                       "rawtlv": message}]
         }
         # TODO handle return:
-        self.rpc_client.call("sendonionmessage", payload)
-
+        try:
+            self.rpc_client.call("sendonionmessage", payload)
+        except RpcError as e:
+            # This can happen when a peer disconnects, depending
+            # on the timing:
+            log.warn("Failed RPC call to: " + peerid + \
+                     ", error: " + repr(e))
     def shutdown(self):
         """ TODO
         """
