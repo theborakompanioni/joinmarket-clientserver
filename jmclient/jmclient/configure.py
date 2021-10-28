@@ -656,29 +656,6 @@ def load_program_config(config_path="", bs=None, plugin_services=[],
               "settings and restart joinmarket.", "info")
         sys.exit(EXIT_FAILURE)
 
-    #These are left as sanity checks but currently impossible
-    #since any edits are overlays to the default, these sections/options will
-    #always exist.
-    # FIXME: This check is a best-effort attempt. Certain incorrect section
-    # names can pass and so can non-first invalid sections.
-    # TODO: temporarily(?) removed these checks in new ln configs, needs review
-    #for s in required_options: #pragma: no cover
-        # check for sections
-   #     avail = None
-   #     if not global_singleton.config.has_section(s):
-   #         for avail in global_singleton.config.sections():
-   #             if avail.startswith(s):
-   #                 break
-   #         else:
-   #             raise Exception(
-   #                 "Config file does not contain the required section: " + s)
-        # then check for specific options
-   #     k = avail or s
-   #     for o in required_options[s]:
-   #         if not global_singleton.config.has_option(k, o):
-   #             raise Exception("Config file does not contain the required "
-   #                             "option '{}' in section '{}'.".format(o, k))
-
     loglevel = global_singleton.config.get("LOGGING", "console_log_level")
     try:
         set_logging_level(loglevel)
@@ -785,7 +762,6 @@ def start_ln(chaninfo, jm_ln_dir):
                      "bitcoin-rpcpassword=" + brpc_password,
                      brpc_net,
                      "experimental-onion-messages",
-                     #"addr=" + ln_host + ":" + str(ln_serving_port)
                      "proxy=127.0.0.1:9050",
                      "bind-addr=127.0.0.1:" + str(ln_serving_port),
                      "addr=autotor:127.0.0.1:9051/torport=" + str(ln_serving_port),

@@ -1,20 +1,20 @@
 # HOW TO SETUP LIGHTNING MESSAGE CHANNELS IN JOINMARKET
 
-**WORK IN PROGRESS: currently only on test networks.**
-
 ### Contents
 
 1. [Purpose](#purpose)
 
-2. [Installing c-lightning](#install-ln)
+2. [Installing; checking your config and Tor setup](#config)
 
-3. [Configure and run on regtest](#regtest)
+3. [Configure for signet](#signet)
 
-4. [Configure for signet](#signet)
+4. [Directory nodes](#directory)
 
 <a name="purpose" />
 
 ## Purpose
+
+You can skip this whole section if you just want to install the software and run it.
 
 The discussion of "more decentralized than just using IRC servers", for Joinmarket, has been ongoing for years and in particular the most recent extended discussion is to be found in [this issue thread](https://github.com/JoinMarket-Org/joinmarket-clientserver/issues/415).
 
@@ -26,66 +26,20 @@ Why Lightning and not just Tor? We gain a few things:
 
 (c-lightning's [plugin architecture](https://lightning.readthedocs.io/PLUGINS.html) is a big part of what makes this relatively easy to implement; it means we have a very loose coupling via a simple plugin that forwards messages and notifications from the c-lightning node to joinmarket's jmdaemon, which is able to use it as "just another way of passing messages", basically).
 
-What is in this PR *so far* as of 31 Aug 2021, time of writing, is limited, but functional. The directory nodes are queried for connections (after being connected to, of course), to give takers a view of the current trading pit. They also basically do all the heavy lifting, broadcasting `pubmsgs` and are used to forward `privmsgs` also (except in cases where participants already have an existing connection). This will be changed at some point to use onion routing with hops, which is already included in the `sendonionmessage` API, see [here](https://lightning.readthedocs.io/lightning-sendonionmessage.7.html) for details - notice the `hops` array. I say *will be changed*, because it's really needed if we want to gain the scale that such a more decentralized approach can achieve.
 
+<a name="config" />
 
-<a name="install-ln" />
+## Installing; checking your config and Tor setup.
 
-## C-Lightning installation.
-
-Obviously it's a disadvantage to require an additional piece of software (if you're not already running it, or if you're running lnd), but there are two ameliorating factors:
-
-* You don't, for now, need to even fund the wallet or use anything in the software apart from running the Joinmarket plugin.
-
-* It's actually very easy to build and install on Linux.
-
-The installation instructions are on the repo, however there is a very important detail before you go there, and follow those instructions. You unfortunately *must* compile and build, not just install the binaries, because `sendonionmessage` is still in the "experimental features" set, and you must run:
+If you are running this for the first time you need to go through a full install of Joinmarket using:
 
 ```
-./configure --enable-developer --enable-experimental-features`
+a@b:/path/to/joinmarket-clientserver$ ./install.sh --with-ln-messaging
 ```
 
-and not just
+and then follow the installation process as normal, including the final activation of the virtualenv. The `with-ln-messaging` flag will *compile* and install an instance of [c-lightning](https://github.com/ElementsProject/lightning) (the reason it must be compiled is that we use a currently experimental feature (onion messaging) not enabled in the release).
 
-```
-./configure
-```
-
-With that said, follow the guide for building on your Linux distro [here](https://github.com/ElementsProject/lightning/blob/master/doc/INSTALL.md).
-
-
-<a name="regtest" />
-
-## Running tests on regtest
-
-Since this doc (and code) are in a testing phase, you will want to run on either regtest or signet to start. Here there's an especially good reason to get it running on regtest: c-lightning has a purpose built environment to make this very easy. Once you've completed the installation instructions, and assuming you have `bitcoind` and `bitcoin-cli` in your path, you'll be able to:
-
-```
-cd contrib/
-source ./startup_regtest.sh
-start_ln 3
-```
-
-(I recommend reading the detailed explanation in the comments of the `startup_regtest.sh` script [here](https://github.com/ElementsProject/lightning/blob/77d2c538b3ca0c546d15d4f505cab33d44cfb07f/contrib/startup_regtest.sh#L3-L31)). From here you already have a working "Lightning-network-in-a-box" with 3 nodes ready to go.
-
-Once you've done this once and know that it works, you're ready to test Joinmarket with it. First, you need to edit that startup_regtest.sh script to include the Joinmarket plugin configuration. Change:
-
-```
-test -f "/tmp/l$i-$network/lightningd-$network.pid" || \ "$LIGHTNINGD" "--lightning-dir=/tmp/l$i-$network" &
-```
-
-to:
-
-```
-test -f "/tmp/l$i-$network/lightningd-$network.pid" || \
-                        "$LIGHTNINGD" "--dev-force-privkey=121212121212121212121212121212121212121212121212121212121212121$i" "--plugin=/path/to/joinmarket-clientserver/jmdaemon/jmdaemon/jmcl.py" "--jmport=4910$i" "--experimental-onion-messages" "--lightning-dir=/tmp/l$i-$network" &
-```
-
-the weird `--dev-force-privkey` parameter is not necessary, but it's very helpful in tests, since it means every node will always have the same pubkey from run to run. The other two added parameters should be self-explanatory.
-
-Small note: c-lightning does *not* need to be running in the `(jmvenv)` virtualenv that we use for Joinmarket; but you do need to install twisted (e.g. `pip3 install twisted`).
-
-After re-running the above c-lightning regtest setup with this edited startup file, but with 4 nodes rather than 3 (i.e. change to `start-ln 4`), you can now run the normal Joinmarket regtest setup file `ygrunner.py`, but first you need to edit the Joinmarket config file, which for testing is in current working directory. To the normal regtest version of `joinmarket.cfg`, make this edit:
+Before starting up a coinjoin bot, examine the new config section which can be created by running `python wallet-tool.py somewallet.jmdat` as usual with your current `joinmarket.cfg` backed up to a different file name. You should see this new section:
 
 ```
 [MESSAGING:lightning1]
@@ -93,69 +47,35 @@ type = ln-onion
 # This is a comma separated list (comma can be omitted if only one item).
 # Each item has format pubkey@host:port ; all are required. Host can be
 # a *.onion address (tor v3 only).
-directory-nodes = 03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c5253c55@localhost:7171
-# note that this setting in particular needs dynamic editing in tests of multiple
-# nodes on one machine and this is marked with the special string 'regtest',
-# but for normal running it is just located in your ~/.lightning:
-lightningrpc-path = regtest
-passthrough-port = 49100
+directory-nodes = 0344bc51c0b0cf58ebfee222bdd8ff4855ac3becd7a9c8bff8ff08100771179047@mvm5ffyipzf4tis2g753w7q25evcqmvj6qnnwgr3dkpyukomykzvwuad.onion:9735
+passthrough-port = 49101
+lightning-port = 9735
 ```
 
-(and, comment out or delete the IRC message channel entries). How this differs from what's placed currently in `configure.py` is the "regtest" setting for `lightning-rpc`, and it is explained in the comment above it; it enables *the multiple joinmarket bots started together in ygrunner.py to connect to the separate backend c-lightning nodes that were started up with start-ln*. Note that *if* you use the exact same `--dev-force-privkey` setting as explained above, then the entry for `directory-nodes` here will work correctly: it'll be the first c-lightning node, whose log is in `/tmp/l1-regtest/log`.
+The section name "lightning1" is not important, as this MESSAGING section is identified by its type `ln-onion`; there should be only one such (see below on directory-nodes - that's how we configure redundancy here, if desired). Apart from setting the directory nodes, there is usually no need to change the port settings, unless you are testing and want multiple bots running simultaneously; then, just make sure that `passthrough-port` values do not conflict.
 
-Once you've made this config change you're ready to:
+### Tor setup.
 
-```
-(jmvenv) a@b/joinmarket-clientserver$ pytest --btcconf=/path/to/bitcoin.conf --btcroot=/path/to/bitcoin/bin/ --btcpwd=123456abcdef --nirc=2 test/ygrunner.py -s -p no:warnings
-```
-See the [testing doc](TESTING.md); you are running this test setup just as usual, with that config change. Make sure you reach `JM daemon setup complete` which as usual means that the message channel(s) are up/ready.
+Read through the introductory section on setting up c-lightning for Tor hidden/onion services [here](https://lightning.readthedocs.io/TOR.html#quick-start-on-linux); from the start of that subsection to the paragraph "If the above prints nothing and returns, then C-Lightning “should” work with your Tor." These steps will serve to ensure that your Tor is configured to allow c-lightning to use it. The rest of that document is not needed as it's handled by Joinmarket automatically.
 
-To do a transaction, then as usual start a new terminal, set up the virtualenv, go to the scripts/ directory, copy the above `joinmarket.cfg` into there, but edit the `lightningrpc-path` setting to be `tmp/l4-regtest/regtest/lightning-rpc` - this is the Unix socket that Joinmarket uses to make RPC calls to c-lightning, and we're using the 4th instance because the `ygrunner` script made use of the first 3, for the makers.
+### OK, c-lightning is setup automatically; that's great, but where?
 
-Then do a `sendpayment` as usual to see it working.
-
+First, the compiled binaries are in `joinmarket-clientserver/jmvenv/{bin,libexec}`. Second, the `lightning-dir` is set to `<jmdatadir>/lightning`, so that you will find it by default in `~/.joinmarket/lightning/config`. Given this consideration you might, in certain use cases, prefer to use a manually set separate joinmarket datadir, e.g. `python yg-privacyenhanced.py --datadir=/some/custom/location mywallet.jmdat`; remember this changes the location of all Joinmarket data too, including `joinmarket.cfg` and `wallets/`.
 
 <a name="signet" />
 
 ## Configure for signet.
 
-Edit your `joinmarket.cfg` (in this case, probably in `~/.joinmarket/joinmarket.cfg`  unless you use `--datadir`). Add the same Lightning config as above, but you need to specify a directory node, which *can* be your own node (then it won't do much, but you can give it to others).
+There is no separate/special configuration for signet other than the configuration that is already needed for running Joinmarket against a signet backend (so e.g. RPC port of 38332). The correct configuration will automatically be ported into your embedded c-lightning instance.
 
-```
-[MESSAGING:lightning1]
-type = ln-onion
-# This is a comma separated list (comma can be omitted if only one item).
-# Each item has format pubkey@host:port ; all are required. Host can be
-# a *.onion address (tor v3 only).
-directory-nodes = somepubkey@somehost:someport
-# note that this setting in particular needs dynamic editing in tests of multiple
-# nodes on one machine and this is marked with the special string 'regtest',
-# but for normal running it is just located in your ~/.lightning:
-lightningrpc-path = ~/.lightning/signet/lightning-rpc
-passthrough-port = 49100
-```
+<a name="directory" />
 
-Notice that the lightningrpc-path is changed.
+## Directory nodes
 
-If we're going to run a "real" instance on signet, we just need to start up one c-lightning node:
+### As a non-directory nodes
 
-```
-lightningd --signet --daemon --plugin=/path/to/joinmarket-clientserver/jmdaemon/jmdaemon/jmcl.py --jmport=49100 --experimental-onion-messages
-```
+Enter the directory nodes you want to use in `joinmarket.cfg` as per above, comma separated. They must always be pubkey@host:port, whether onion or not. Or just keep the defaults you are given. The default currently as of Oct 2021 is a signet serving directory node.
 
-As far as I know this won't be doing much without you choosing to fund, connect, open channels etc. But this should
-allow you to now do normal Joinmarket operations with peers that have at least one directory node in common.
+### As a directory node.
 
-If you want to run multiple nodes on signet for testing, I can suggest: create a specific subdirectory for each node and then use it *both* as your `--lightning-dir` as per the above regtest setup, *and* as your Joinmarket datadir with `--datadir=` in your Joinmarket script running. That way you will edit the `config` file specific for that Lightning node there, and the `joinmarket.cfg` file in the same directory. It will also house your Joinmarket wallet under `wallets/`, there. What remains would be to specify different `jmcport` and Lightning ports. Here is an example `config` file I have under `~/lntests/node1dir`:
-
-```
-bitcoin-rpcconnect=127.0.0.1
-bitcoin-rpcport=38332
-bitcoin-rpcuser=bitcoinrpc
-bitcoin-rpcpassword=123456abcdef
-signet
-addr=localhost:7011
-```
-
-Notice I'm giving it a custom lightning port (7011), and specifying signet and giving it the right bitcoin rpc setup for my running bitcoind signet node. This is for a one-machine testing setup.
-
+This requires a long running bot, best on some VPS or other reliable setup. There is one change required: in `jmclient.configure.start_ln`, where the `lnconfiglines` are written, change from `autotor` to `statictor` (you can keep the entire rest of the configuration the same. This means that every time you restart you will use the same `.onion` address, which is of course necessary here. Further, make this `.onion` (in the correct pubkey@host:port format) be the only entry in `directory-nodes` in your Joinmarket.cfg. When you start up you will see a message `this is the genesis node` which will confirm to you that you are running as a directory. (Note, this will change to be more flexible shortly, probably with a specific config flag).
