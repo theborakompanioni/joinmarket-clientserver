@@ -788,7 +788,7 @@ def start_ln(chaninfo, jm_ln_dir):
                      #"addr=" + ln_host + ":" + str(ln_serving_port)
                      "proxy=127.0.0.1:9050",
                      "bind-addr=127.0.0.1:" + str(ln_serving_port),
-                     "addr=statictor:127.0.0.1:9051",
+                     "addr=autotor:127.0.0.1:9051/torport=" + str(ln_serving_port),
                      "always-use-proxy=true"]
     with open(os.path.join(jm_ln_dir, "config"), "w") as f:
         # TODO a bit rude to just always overwrite? But we do manage this one.
