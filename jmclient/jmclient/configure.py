@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import subprocess
 
 from configparser import ConfigParser, NoOptionError
 
@@ -150,10 +151,9 @@ directory-nodes = 03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c525
 # port via which we receive data from the c-lightning plugin:
 passthrough-port = 49100
 # the remaining settings are for the network configuration of the
-# bundled c-lightning node; default will be to use tor. For clearnet,
-# including localhost testing, you can use `addr=localhost:port` for
-# some port you choose, and comment out all the remaining lines:
-addr=localhost:7012
+# bundled c-lightning node; default will be to use tor.
+lightning-hostname = 127.0.0.1
+lightning-port = 9735
 #proxy=127.0.0.1:9050
 #bind-addr=127.0.0.1:9735
 #addr=statictor:127.0.0.1:9051
@@ -499,7 +499,8 @@ def get_mchannels():
     irc_fields = [("host", str), ("port", int), ("channel", str), ("usessl", str),
               ("socks5", str), ("socks5_host", str), ("socks5_port", str)]
     lightning_fields = [("type", str), ("directory-nodes", str),
-                        ("passthrough-port", int)]
+                        ("passthrough-port", int), ("lightning-rpc", str),
+                        ("lightning-hostname", str), ("lightning-port", int)]
 
     configs = []
     for section in sections:
@@ -521,9 +522,14 @@ def get_mchannels():
             break
         ln_data = {}
         for option, otype in lightning_fields:
-            val = jm_single().config.get(section, option)
+            try:
+                val = jm_single().config.get(section, option)
+            except NoOptionError:
+                continue
             ln_data[option] = otype(val)
         ln_data['btcnet'] = get_network()
+        # Just to allow a dynamic set of var:
+        ln_data["section-name"] = section
         configs.append(ln_data)
     return configs
 
@@ -614,7 +620,8 @@ def remove_unwanted_default_settings(config):
         if section.startswith('MESSAGING:'):
             config.remove_section(section)
 
-def load_program_config(config_path="", bs=None, plugin_services=[]):
+def load_program_config(config_path="", bs=None, plugin_services=[],
+                        ln_backend_needed=False):
     global_singleton.config.readfp(io.StringIO(defaultconfig))
     if not config_path:
         config_path = lookup_appdata_folder(global_singleton.APPNAME)
@@ -746,23 +753,30 @@ def load_program_config(config_path="", bs=None, plugin_services=[]):
     chans = get_mchannels()
     lnchans = [x for x in chans if x["type"] == "ln-onion"]
     assert len(lnchans) < 2
-    if lnchans:
+    if lnchans and ln_backend_needed:
         jm_ln_dir = os.path.join(global_singleton.datadir, "lightning")
         if not os.path.exists(jm_ln_dir):
             os.makedirs(jm_ln_dir)
         start_ln(lnchans[0], jm_ln_dir)
 
 def start_ln(chaninfo, jm_ln_dir):
+    # First, we dynamically update this LN message chan
+    # config section to include the location on which its
+    # RPC socket will exist:
+    brpc_net = get_network()
+    global_singleton.config.set(chaninfo["section-name"], "lightning-rpc",
+                    os.path.join(jm_ln_dir, brpc_net, "lightning-rpc"))
+
     passthrough_port = str(chaninfo["passthrough-port"])
     # find where our custom lightningd is:
     lightningd_loc = os.path.join(sys.prefix, "bin")
-    if os.path.exists(os.path.join(lightningd_loc, "lightningd")):
+    if not os.path.exists(os.path.join(lightningd_loc, "lightningd")):
         raise Exception("Can't find our custom lightningd")
     # To get the location of the jmcl plugin, we need the location of this python file:
     floc = os.path.dirname(os.path.abspath(__file__))
     jmcl_loc = os.path.join(floc, "..", "..", "jmdaemon", "jmdaemon", "jmcl.py")
     command = [os.path.join(lightningd_loc, "lightningd"), "--plugin="+jmcl_loc,
-               "--jmport="+passthrough_port, "--lightningdir= " + jm_ln_dir,
+               "--jmport="+passthrough_port, "--lightning-dir=" + jm_ln_dir,
                "--experimental-onion-messages"]
     # we need to create c-lightning's own config file, in lightningdir/config.
     # This requires the bitcoin rpc config also:
@@ -770,25 +784,23 @@ def start_ln(chaninfo, jm_ln_dir):
     brpc_port = global_singleton.config.get("BLOCKCHAIN", "rpc_port")
     brpc_user = global_singleton.config.get("BLOCKCHAIN", "rpc_user")
     brpc_password = global_singleton.config.get("BLOCKCHAIN", "rpc_password")
-    brpc_net = get_network()
-    lnconfiglines = ["bitcoin-rpcconnect" + brpc_host,
+    ln_host = chaninfo["lightning-hostname"]
+    ln_serving_port = chaninfo["lightning-port"]
+    lnconfiglines = ["bitcoin-rpcconnect=" + brpc_host,
                      "bitcoin-rpcport=" + brpc_port,
                      "bitcoin-rpcuser=" + brpc_user,
                      "bitcoin-rpcpassword=" + brpc_password,
                      brpc_net,
                      "experimental-onion-messages",
-                     "addr=localhost:7012"]
-    with open(os.path.join(jm_ln_dir, "config"), "wb") as f:
+                     "addr=" + ln_host + ":" + str(ln_serving_port)]
+    with open(os.path.join(jm_ln_dir, "config"), "w") as f:
         # TODO a bit rude to just always overwrite? But we do manage this one.
-        f.writelines(lnconfiglines)
-    import subprocess
-    subprocess.Popen(command, close_fds=True)
-    # to avoid the user having to bother, this last config var is set
-    # dynamically for them; it's needed by jmdaemon to set up the LNOnionMessageChannel.
-    # To get the location right, we need the network name mainnet/signet/regtest:
-    global_singleton.config.set("MESSAGING:lightning1", "lightningrpc-path",
-                        os.path.join(jm_ln_dir, brpc_net, "lightning-rpc"))
-    
+        f.write("\n".join(lnconfiglines))
+
+    FNULL = open(os.devnull, 'w')
+    subprocess.Popen(command, stdout=FNULL,
+                stderr=subprocess.STDOUT, close_fds=True)
+
 def load_test_config(**kwargs):
     if "config_path" not in kwargs:
         load_program_config(config_path=".", **kwargs)

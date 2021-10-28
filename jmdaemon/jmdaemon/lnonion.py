@@ -321,22 +321,12 @@ class LNOnionMessageChannel(MessageChannel):
     to access a list of current active nodes, and updates
     dynamically from messages seen.
     """
-    test_index = 1
     def __init__(self,
                  configdata,
                  daemon=None):
         MessageChannel.__init__(self, daemon=daemon)
         # configures access to c-lightning RPC over the unix socket.
-        # A note for testing: this is set in instance initialization,
-        # which means we can safely alter the config dynamically as we
-        # create multiple instances.
-        # For tests, we use an index to identify the paths:
-        if configdata["lightningrpc-path"] == "regtest":
-            self.clnrpc_socket_path = "/tmp/l" + str(
-            LNOnionMessageChannel.test_index) + "-regtest/regtest/lightning-rpc"
-            LNOnionMessageChannel.test_index += 1
-        else:
-            self.clnrpc_socket_path = configdata['lightningrpc-path']
+        self.clnrpc_socket_path = configdata["lightning-rpc"]
         # hostid is a feature to avoid replay attacks across message channels;
         # TODO investigate, but for now, treat LN as one "server".
         self.hostid = "lightning-network"
@@ -349,11 +339,8 @@ class LNOnionMessageChannel(MessageChannel):
                                                 directory=True))
         # the protocol factory for receiving TCP message for us:
         self.tcp_passthrough_factory = TCPPassThroughFactory()
-        # -1 because we already incremented the global
         port = configdata["passthrough-port"]
-        port_to_listen = port + LNOnionMessageChannel.test_index -1 if \
-            configdata["lightningrpc-path"] == "regtest" else port
-        reactor.listenTCP(port_to_listen, self.tcp_passthrough_factory)
+        reactor.listenTCP(port, self.tcp_passthrough_factory)
         # will be needed to send messages:
         self.rpc_client = None
 
