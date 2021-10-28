@@ -150,14 +150,8 @@ type = ln-onion
 directory-nodes = 03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c5253c55@localhost:7171
 # port via which we receive data from the c-lightning plugin:
 passthrough-port = 49100
-# the remaining settings are for the network configuration of the
-# bundled c-lightning node; default will be to use tor.
-lightning-hostname = 127.0.0.1
+# this is the port serving lightning on your onion service:
 lightning-port = 9735
-#proxy=127.0.0.1:9050
-#bind-addr=127.0.0.1:9735
-#addr=statictor:127.0.0.1:9051
-#always-use-proxy=true
 
 [MESSAGING:server2]
 # by default the legacy format without a `type` field is
@@ -784,7 +778,6 @@ def start_ln(chaninfo, jm_ln_dir):
     brpc_port = global_singleton.config.get("BLOCKCHAIN", "rpc_port")
     brpc_user = global_singleton.config.get("BLOCKCHAIN", "rpc_user")
     brpc_password = global_singleton.config.get("BLOCKCHAIN", "rpc_password")
-    ln_host = chaninfo["lightning-hostname"]
     ln_serving_port = chaninfo["lightning-port"]
     lnconfiglines = ["bitcoin-rpcconnect=" + brpc_host,
                      "bitcoin-rpcport=" + brpc_port,
@@ -792,7 +785,11 @@ def start_ln(chaninfo, jm_ln_dir):
                      "bitcoin-rpcpassword=" + brpc_password,
                      brpc_net,
                      "experimental-onion-messages",
-                     "addr=" + ln_host + ":" + str(ln_serving_port)]
+                     #"addr=" + ln_host + ":" + str(ln_serving_port)
+                     "proxy=127.0.0.1:9050",
+                     "bind-addr=127.0.0.1:" + str(ln_serving_port),
+                     "addr=statictor:127.0.0.1:9051",
+                     "always-use-proxy=true"]
     with open(os.path.join(jm_ln_dir, "config"), "w") as f:
         # TODO a bit rude to just always overwrite? But we do manage this one.
         f.write("\n".join(lnconfiglines))
