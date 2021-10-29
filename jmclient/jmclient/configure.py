@@ -147,7 +147,7 @@ type = ln-onion
 # This is a comma separated list (comma can be omitted if only one item).
 # Each item has format pubkey@host:port ; all are required. Host can be
 # a *.onion address (tor v3 only).
-directory-nodes = 03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c5253c55@localhost:7171
+directory-nodes = 0344bc51c0b0cf58ebfee222bdd8ff4855ac3becd7a9c8bff8ff08100771179047@mvm5ffyipzf4tis2g753w7q25evcqmvj6qnnwgr3dkpyukomykzvwuad.onion:9736
 # port via which we receive data from the c-lightning plugin:
 passthrough-port = 49100
 # this is the port serving lightning on your onion service:

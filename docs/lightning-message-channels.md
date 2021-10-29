@@ -47,7 +47,7 @@ type = ln-onion
 # This is a comma separated list (comma can be omitted if only one item).
 # Each item has format pubkey@host:port ; all are required. Host can be
 # a *.onion address (tor v3 only).
-directory-nodes = 0344bc51c0b0cf58ebfee222bdd8ff4855ac3becd7a9c8bff8ff08100771179047@mvm5ffyipzf4tis2g753w7q25evcqmvj6qnnwgr3dkpyukomykzvwuad.onion:9735
+directory-nodes = 0344bc51c0b0cf58ebfee222bdd8ff4855ac3becd7a9c8bff8ff08100771179047@mvm5ffyipzf4tis2g753w7q25evcqmvj6qnnwgr3dkpyukomykzvwuad.onion:9736
 passthrough-port = 49101
 lightning-port = 9735
 ```
