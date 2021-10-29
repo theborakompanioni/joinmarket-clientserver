@@ -5,6 +5,8 @@ import os
 import re
 import sys
 import subprocess
+import atexit
+from signal import SIGINT
 
 from configparser import ConfigParser, NoOptionError
 
@@ -770,8 +772,11 @@ def start_ln(chaninfo, jm_ln_dir):
         f.write("\n".join(lnconfiglines))
 
     FNULL = open(os.devnull, 'w')
-    subprocess.Popen(command, stdout=FNULL,
+    # Perhaps inapproriate? Add the subprocess to the global
+    # state so that it can be signalled for shutdown as and when.
+    ln_subprocess = subprocess.Popen(command, stdout=FNULL,
                 stderr=subprocess.STDOUT, close_fds=True)
+    atexit.register(ln_subprocess.send_signal, SIGINT)
 
 def load_test_config(**kwargs):
     if "config_path" not in kwargs:
