@@ -1,12 +1,12 @@
 from jmdaemon.message_channel import MessageChannel
 from jmdaemon.protocol import COMMAND_PREFIX
-from jmbase.support import get_log, bintohex, hextobin
+from jmbase import get_log, bintohex, hextobin, stop_reactor
 from pyln.client import LightningRpc, RpcError
 from io import BytesIO
 import struct
 import json
 from twisted.internet import reactor, task
-from twisted.internet.protocol import Protocol, ServerFactory
+from twisted.internet.protocol import ServerFactory
 from twisted.protocols.basic import LineReceiver
 log = get_log()
 
@@ -332,10 +332,10 @@ class LNOnionMessageChannel(MessageChannel):
         self.hostid = "lightning-network"
         # keep track of peers. the list will be instances
         # of LNOnionPeer:
-        self.peers = []
+        self.peers = set()
         for dn in configdata["directory-nodes"].split(","):
             # note we don't use a nick for directories:
-            self.peers.append(LNOnionPeer.from_location_string(dn,
+            self.peers.add(LNOnionPeer.from_location_string(dn,
                                                 directory=True))
         # the protocol factory for receiving TCP message for us:
         self.tcp_passthrough_factory = TCPPassThroughFactory()
@@ -348,6 +348,8 @@ class LNOnionMessageChannel(MessageChannel):
         # directories but us.
         self.genesis_node = False
 
+        # monitoring loop for getting up to date peer lists:
+        self.peer_request_loop = None
 
 # ABC implementation section
     def run(self):
@@ -468,9 +470,9 @@ class LNOnionMessageChannel(MessageChannel):
             p.connect(self.rpc_client)
         # after all the connections are in place, we can
         # start our continuous request for peer updates:
-        peer_request_loop = task.LoopingCall(self.send_getpeers)
-        peer_request_loop.start(10.0)
-        # tell the joinmarketd daemon that we're ready
+        self.peer_request_loop = task.LoopingCall(self.send_getpeers)
+        self.peer_request_loop.start(10.0)
+        # Signal that we're ready.
         # (we needed to wait until we had a fresh peer list).
         # This is what triggers the start of taker/maker workflows.
         self.on_welcome(self)
@@ -484,7 +486,7 @@ class LNOnionMessageChannel(MessageChannel):
                 return p.peerid
         return None
 
-    def _send(self, peerid: str, message: bytes) -> None:
+    def _send(self, peerid: str, message: bytes) -> bool:
         """
         This method is "raw" in that it only respects
         c-lightning's sendonionmessage syntax; it does
@@ -493,6 +495,12 @@ class LNOnionMessageChannel(MessageChannel):
         Sends a message to a peer on the message channel,
         identified by `peerid`, in TLV hex format.
         To encode the `message` field use `LNOnionMessage.encode`.
+        Arguments:
+        peerid: hex-encoded string.
+        message: raw bytes, encoded as per above.
+        Returns:
+        False if RpcError is raised by a failed RPC call,
+        or True otherwise.
         """
         payload={
             "hops": [{"id": peerid,
@@ -506,6 +514,9 @@ class LNOnionMessageChannel(MessageChannel):
             # on the timing:
             log.warn("Failed RPC call to: " + peerid + \
                      ", error: " + repr(e))
+            return False
+        return True
+
     def shutdown(self):
         """ TODO
         """
@@ -601,7 +612,7 @@ class LNOnionMessageChannel(MessageChannel):
                         JM_MESSAGE_TYPES["privmsg"]).encode()
         self._send(peerid, encoded_msg)
 
-    def process_control_message(self, msgtype: int, msgval: str) -> None:
+    def process_control_message(self, msgtype: int, msgval: str) -> bool:
         """ Triggered by a directory node feeding us
         peers, or by a connect/disconnect hook
         in the c-lightning plugin; this is our housekeeping
@@ -611,7 +622,7 @@ class LNOnionMessageChannel(MessageChannel):
             )) + list(CONTROL_MESSAGE_TYPES.values())
         if msgtype not in all_ctrl:
             return False
-        print("received control message: {},{}".format(msgtype, msgval))
+        log.debug("received control message: {},{}".format(msgtype, msgval))
         if msgtype == CONTROL_MESSAGE_TYPES["peerlist"]:
             # This is the base method of seeding connections;
             # a directory node can send this any time. We may well
@@ -623,17 +634,25 @@ class LNOnionMessageChannel(MessageChannel):
                     # defaults mean we just add the peer, not
                     # add or alter its connection status:
                     self.add_peer(peer, with_nick=True)
-                return True
             except Exception as e:
-                print("Incorrectly formatted peer list: {}, "
+                log.debug("Incorrectly formatted peer list: {}, "
                       "ignoring, {}".format(msgval, e))
+                # returning True either way, because although it was an
+                # invalid message, it *was* a control message, and should
+                # not be processed as something else.
+            return True
         elif msgtype == CONTROL_MESSAGE_TYPES["getpeerlist"]:
             # getpeerlist must be accompanied by a full node
             # locator, and nick;
             # add that peer before returning our peer list.
             p = self.add_peer(msgval, connection=True,
                               overwrite_connection=True, with_nick=True)
-            self.send_peers(p)
+            try:
+                self.send_peers(p)
+            except LNOnionPeerConnectionError:
+                pass
+            # comment much as above; if we can't connect, it's none
+            # of our business.
             return True
         elif msgtype == LOCAL_CONTROL_MESSAGE_TYPES["connect"]:
             self.add_peer(msgval, connection=True,
@@ -643,6 +662,9 @@ class LNOnionMessageChannel(MessageChannel):
                           overwrite_connection=False)
         else:
             assert False
+        # If we got here it is *not* a non-local control message;
+        # so we must process it as a Joinmarket message.
+        return False
 
     def get_peer_by_id(self, p: str):
         """ Returns the LNOnionPeer with peerid p,
@@ -683,7 +705,7 @@ class LNOnionMessageChannel(MessageChannel):
                 # no address info here
                 p = LNOnionPeer(peer)
                 p.is_connected = connection
-                self.peers.append(p)
+                self.peers.add(p)
             elif overwrite_connection:
                 p.is_connected = connection
             if with_nick:
@@ -698,7 +720,7 @@ class LNOnionMessageChannel(MessageChannel):
                 temp_p.is_connected = connection
                 if with_nick:
                     temp_p.set_nick(nick)
-                self.peers.append(temp_p)
+                self.peers.add(temp_p)
                 return temp_p
             else:
                 p = self.get_peer_by_id(temp_p.peerid)
@@ -726,14 +748,29 @@ class LNOnionMessageChannel(MessageChannel):
     def send_getpeers(self):
         """ This message is sent to all currently connected
         directory nodes.
+        If it fails we must update our directory node list or quit.
         """
         for dp in self.get_connected_directory_peers():
             # This message embeds the connection information
             # for *ourselves* to add to peer lists of other
             # nodes.
             msg = self.self_as_peer.get_nick_peerlocation_ser()
-            self._send(dp.peerid, LNOnionMessage(msg,
-                        CONTROL_MESSAGE_TYPES["getpeerlist"]).encode())
+            success = self._send(dp.peerid, LNOnionMessage(msg,
+                    CONTROL_MESSAGE_TYPES["getpeerlist"]).encode())
+            if not success:
+                # a failure of the RPC call is interpreted as a failure
+                # to connect. We must drop this dn, with a warning,
+                # and we must shut down this loop and the whole program
+                # if we have no directory peers left.
+                log.warn("Losing connection to directory: " + dp.peerid)
+                dp.is_connected = False
+                if len(self.get_connected_directory_peers()) == 0:
+                    # we cannot continue if we have no existing directory
+                    # peers.
+                    self.peer_request_loop.stop()
+                    self.shutdown()
+                    stop_reactor()
+                    break
 
     def send_peers(self, requesting_peer):
         """ This message is sent by directory peers on request
@@ -749,7 +786,7 @@ class LNOnionMessageChannel(MessageChannel):
         if not requesting_peer.is_connected:
             raise LNOnionPeerConnectionError(
                 "Cannot send peer list to unconnected peer")
-        peerlist = []
+        peerlist = set()
         for p in self.get_connected_nondirectory_peers():
             # don't send a peer to itself
             if p.peerid == requesting_peer.peerid:
@@ -761,9 +798,9 @@ class LNOnionMessageChannel(MessageChannel):
             # privmsg-reachable; don't send them
             if p.nick == "":
                 continue
-            peerlist.append(p.get_nick_peerlocation_ser())
+            peerlist.add(p.get_nick_peerlocation_ser())
         # For testing: dns won't usually participate:
-        peerlist.append(self.self_as_peer.get_nick_peerlocation_ser())
+        peerlist.add(self.self_as_peer.get_nick_peerlocation_ser())
         self._send(requesting_peer.peerid, LNOnionMessage(",".join(
             peerlist), CONTROL_MESSAGE_TYPES["peerlist"]).encode())
 
