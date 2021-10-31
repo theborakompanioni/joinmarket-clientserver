@@ -724,7 +724,7 @@ def load_program_config(config_path="", bs=None, plugin_services=[],
     # packaged/customised lightning daemon with the required ports
     # in the background at the startup of each script.
     chans = get_mchannels()
-    lnchans = [x for x in chans if x["type"] == "ln-onion"]
+    lnchans = [x for x in chans if "type" in x and x["type"] == "ln-onion"]
     assert len(lnchans) < 2
     if lnchans and ln_backend_needed:
         jm_ln_dir = os.path.join(global_singleton.datadir, "lightning")
@@ -736,7 +736,10 @@ def start_ln(chaninfo, jm_ln_dir):
     # First, we dynamically update this LN message chan
     # config section to include the location on which its
     # RPC socket will exist:
-    brpc_net = get_network()
+    if global_singleton.config.get("BLOCKCHAIN", "blockchain_source") == "regtest":
+        brpc_net == "regtest"
+    else:
+        brpc_net = get_network()
     global_singleton.config.set(chaninfo["section-name"], "lightning-rpc",
                     os.path.join(jm_ln_dir, brpc_net, "lightning-rpc"))
 
@@ -751,6 +754,10 @@ def start_ln(chaninfo, jm_ln_dir):
     command = [os.path.join(lightningd_loc, "lightningd"), "--plugin="+jmcl_loc,
                "--jmport="+passthrough_port, "--lightning-dir=" + jm_ln_dir,
                "--experimental-onion-messages"]
+    # testing needs static values:
+    if brpc_net == "regtest":
+        fixed_key_str = "1212121212121212121212121212121212121212121212121212121212121211"
+        command.append("--dev-force-privkey="+fixed_key_str)
     # we need to create c-lightning's own config file, in lightningdir/config.
     # This requires the bitcoin rpc config also:
     brpc_host = global_singleton.config.get("BLOCKCHAIN", "rpc_host")
@@ -772,8 +779,6 @@ def start_ln(chaninfo, jm_ln_dir):
         f.write("\n".join(lnconfiglines))
 
     FNULL = open(os.devnull, 'w')
-    # Perhaps inapproriate? Add the subprocess to the global
-    # state so that it can be signalled for shutdown as and when.
     ln_subprocess = subprocess.Popen(command, stdout=FNULL,
                 stderr=subprocess.STDOUT, close_fds=True)
     atexit.register(ln_subprocess.send_signal, SIGINT)

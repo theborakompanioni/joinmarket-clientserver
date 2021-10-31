@@ -340,7 +340,8 @@ class LNOnionMessageChannel(MessageChannel):
         # the protocol factory for receiving TCP message for us:
         self.tcp_passthrough_factory = TCPPassThroughFactory()
         port = configdata["passthrough-port"]
-        reactor.listenTCP(port, self.tcp_passthrough_factory)
+        self.tcp_passthrough_listener = reactor.listenTCP(port,
+                                    self.tcp_passthrough_factory)
         # will be needed to send messages:
         self.rpc_client = None
 
@@ -351,9 +352,12 @@ class LNOnionMessageChannel(MessageChannel):
         # monitoring loop for getting up to date peer lists:
         self.peer_request_loop = None
 
+    def get_rpc_client(self, path):
+        return LightningRpc(path)
+
 # ABC implementation section
     def run(self):
-        self.rpc_client = LightningRpc(self.clnrpc_socket_path)
+        self.rpc_client = self.get_rpc_client(self.clnrpc_socket_path)
         # now the RPC is up, let's find out our own details,
         # so we can forward them to peers:
         self.get_our_peer_info()
@@ -411,7 +415,9 @@ class LNOnionMessageChannel(MessageChannel):
         self._send(peerid, encoded_privmsg)
 
     def _announce_orders(self, offerlist):
-        pass
+        for offer in offerlist:
+            self._pubmsg(offer)
+
 # End ABC implementation section
 
 
