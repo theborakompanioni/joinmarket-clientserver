@@ -665,7 +665,7 @@ class LNOnionMessageChannel(MessageChannel):
                           overwrite_connection=True)
         elif msgtype == LOCAL_CONTROL_MESSAGE_TYPES["disconnect"]:
             self.add_peer(msgval, connection=False,
-                          overwrite_connection=False)
+                          overwrite_connection=True)
         else:
             assert False
         # If we got here it is *not* a non-local control message;
@@ -730,8 +730,8 @@ class LNOnionMessageChannel(MessageChannel):
                 return temp_p
             else:
                 p = self.get_peer_by_id(temp_p.peerid)
-                if connection and overwrite_connection:
-                    p.is_connected = True
+                if overwrite_connection:
+                    p.is_connected = connection
                 if with_nick:
                     p.set_nick(nick)
                 return p
