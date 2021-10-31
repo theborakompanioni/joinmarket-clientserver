@@ -2,8 +2,7 @@
 from pyln.client import Plugin
 import json
 import os
-import sys
-from twisted.internet import reactor, task
+from twisted.internet import reactor
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.protocols.basic import LineReceiver
 

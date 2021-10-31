@@ -4,9 +4,8 @@
 import time
 import json
 import copy
-import pytest
 from twisted.trial import unittest
-from twisted.internet import reactor, task, defer
+from twisted.internet import reactor, defer
 from jmdaemon import LNOnionMessageChannel, MessageChannelCollection, COMMAND_PREFIX
 from jmclient import (load_test_config, get_mchannels, jm_single)
 from jmdaemon.lnonion import TCPPassThroughProtocol

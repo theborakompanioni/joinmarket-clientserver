@@ -737,7 +737,7 @@ def start_ln(chaninfo, jm_ln_dir):
     # config section to include the location on which its
     # RPC socket will exist:
     if global_singleton.config.get("BLOCKCHAIN", "blockchain_source") == "regtest":
-        brpc_net == "regtest"
+        brpc_net = "regtest"
     else:
         brpc_net = get_network()
     global_singleton.config.set(chaninfo["section-name"], "lightning-rpc",
@@ -781,7 +781,11 @@ def start_ln(chaninfo, jm_ln_dir):
     FNULL = open(os.devnull, 'w')
     ln_subprocess = subprocess.Popen(command, stdout=FNULL,
                 stderr=subprocess.STDOUT, close_fds=True)
-    atexit.register(ln_subprocess.send_signal, SIGINT)
+    def gracefully_kill_subprocess(p):
+        # See https://stackoverflow.com/questions/43274476/is-there-a-way-to-check-if-a-subprocess-is-still-running
+        if p.poll() is None:
+            p.send_signal(SIGINT)
+    atexit.register(gracefully_kill_subprocess, ln_subprocess)
 
 def load_test_config(**kwargs):
     if "config_path" not in kwargs:
