@@ -80,7 +80,8 @@ def init(options, configuration, plugin):
 @plugin.subscribe("connect")
 def on_connect(plugin, id, address, **kwargs):
     plugin.log("Received connect event for peer {}".format(id))
-    send_local_control_message(785, id)
+    plugin.log("With address: {}".format(address))
+    send_local_control_message(785, id + "@" + address)
 
 @plugin.subscribe("disconnect")
 def on_disconnect(plugin, id, **kwargs):

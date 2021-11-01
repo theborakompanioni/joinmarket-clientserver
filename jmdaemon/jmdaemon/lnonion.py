@@ -400,9 +400,10 @@ class LNOnionMessageChannel(MessageChannel):
         encoded_privmsg = LNOnionMessage(self.get_privmsg(nick, cmd, msg),
                             JM_MESSAGE_TYPES["privmsg"]).encode()
         peerid = self.get_peerid_by_nick(nick)
-        if not peerid:
+        peer = self.get_peer_by_id(peerid)
+        if not peerid or not peer or not peer.is_connected:
             # If we are trying to message a peer via their nick, we
-            # may not yet have connection info; then we just
+            # may not yet have a connection; then we just
             # forward via directory nodes.
             log.debug("Privmsg peer: {} but don't have peerid; "
                      "sending via directory.".format(nick))
@@ -471,7 +472,7 @@ class LNOnionMessageChannel(MessageChannel):
             self.on_welcome(self)
             return
         for p in self.peers:
-            log.info("Trying to connect to node: ", p.peerid)
+            log.info("Trying to connect to node: {}".format(p.peerid))
             p.connect(self.rpc_client)
         # after all the connections are in place, we can
         # start our continuous request for peer updates:
@@ -720,12 +721,24 @@ class LNOnionMessageChannel(MessageChannel):
             # assumed that it's passing a full string
             # TODO need to think about logic of 'is_connected'
             # state here.
-            temp_p = LNOnionPeer.from_location_string(peer)
+            try:
+                temp_p = LNOnionPeer.from_location_string(peer)
+            except Exception as e:
+                # There are currently a few ways the location
+                # parsing and Peer object construction can fail;
+                # TODO specify exception types.
+                log.warn("Failed to add peer: {}, exception: {}".format(peer, repr(e)))
+                return
             if not self.get_peer_by_id(temp_p.peerid):
                 temp_p.is_connected = connection
                 if with_nick:
                     temp_p.set_nick(nick)
                 self.peers.add(temp_p)
+                if not connection:
+                    # Here, we have a full location string,
+                    # and we are not currently connected. We
+                    # try to connect asynchronously:
+                    reactor.callLater(0.0, temp_p.connect, self.rpc_client)
                 return temp_p
             else:
                 p = self.get_peer_by_id(temp_p.peerid)
