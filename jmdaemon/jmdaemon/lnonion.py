@@ -396,7 +396,7 @@ class LNOnionMessageChannel(MessageChannel):
                                 JM_MESSAGE_TYPES["pubmsg"]).encode())
 
     def _privmsg(self, nick, cmd, msg):
-        print("Privmsging to: {}, {}, {}".format(nick, cmd, msg))
+        log.debug("Privmsging to: {}, {}, {}".format(nick, cmd, msg))
         encoded_privmsg = LNOnionMessage(self.get_privmsg(nick, cmd, msg),
                             JM_MESSAGE_TYPES["privmsg"]).encode()
         peerid = self.get_peerid_by_nick(nick)
@@ -410,7 +410,7 @@ class LNOnionMessageChannel(MessageChannel):
                 peerid = self.get_connected_directory_peers()[0].peerid
             except Exception as e:
                 log.warn("Failed to send privmsg because no "
-                         "directory peer is connected.")
+                "directory peer is connected. Error: {}".format(repr(e)))
                 return
         self._send(peerid, encoded_privmsg)
 
@@ -471,8 +471,7 @@ class LNOnionMessageChannel(MessageChannel):
             self.on_welcome(self)
             return
         for p in self.peers:
-            print("the node: ", self.self_as_peer.peerid,
-                  " is trying to connect to the node: ", p.peerid)
+            log.info("Trying to connect to node: ", p.peerid)
             p.connect(self.rpc_client)
         # after all the connections are in place, we can
         # start our continuous request for peer updates:

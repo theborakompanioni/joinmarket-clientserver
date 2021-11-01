@@ -1,16 +1,13 @@
 #! /usr/bin/env python
 '''Tests of LNOnionMessageChannel function '''
 
-import time
-import json
 import copy
 from twisted.trial import unittest
 from twisted.internet import reactor, defer
 from jmdaemon import LNOnionMessageChannel, MessageChannelCollection, COMMAND_PREFIX
 from jmclient import (load_test_config, get_mchannels, jm_single)
-from jmdaemon.lnonion import TCPPassThroughProtocol
 from jmbase import get_log
-from ln_test_data import mock_getinfo_result, mock_control_message1
+from ln_test_data import *
 
 """ We need to spoof both incoming and outcoming.
 Incoming is from lightningd -> sendonionmessage trigger -> jmcl plugin -> tcp-passthrough
@@ -22,65 +19,6 @@ Then that same object sends back the messages in tcp-passthrough messages.
 """
 
 log = get_log()
-
-nick1 = "ln_publisher"
-nick2 = "ln_receiver"
-nick3 = "ln_thirdparty"
-
-class DummyLightningBackend(TCPPassThroughProtocol):
-    connected_nodes = set()
-
-    def send_message(self, message_object) -> None:
-        self.sendLine(json.dumps(message_object).encode("utf-8"))
-
-    def lineReceived(self, line):
-        """ The delta to the base class is, we need to decide
-        here who is to receive the message (in jmcl.py we just forward
-        everything, because LN has already routed by nodeid)
-        , which means we need to parse out the nick/node identifiers.
-        """
-        try:
-            data = line.decode("utf-8")
-        except UnicodeDecodeError:
-            log.warn("Received invalid data over the wire, ignoring.")
-            return
-        if len(self.factory.listeners) == 0:
-            log.msg("WARNING! We received: {} but there "
-                    "were no listeners.".format(data))
-        for listener in self.factory.listeners:
-            try:
-                listener.receive_msg(json.loads(data))
-            except json.decoder.JSONDecodeError as e:
-                log.error("Error receiving data: {}, {}".format(data, repr(e)))
-
-    def call(self, method, data):
-        """ We spoof the outgoing LightningRpc calls
-        `sendonionmessage`, `connect/disconnect` and `getinfo`, using the crude db
-        stored by this protocol instance.
-        """
-        if method == "getinfo":
-            self.send_message({"testkey": "test string return of getinfo"})
-        elif method == "connect":
-            self.add_connected_node(data)
-        elif method == "disconnect":
-            self.remove_connected_node(data)
-        elif method == "sendonionmessage":
-            # TODO format
-            # payload={
-            #"hops": [{"id": peerid,
-            #          "rawtlv": message}]
-            #}
-            self.send_message(data)
-        else:
-            assert False
-
-    def add_connected_node(self, data):
-        self.connected_nodes.add(data["nodeid"])
-
-    def remove_connected_node(self, data):
-        self.connected_nodes.remove(data["nodeid"])
-
-si = 0.1
 
 # The "daemon" here is specifically the daemon protocol in
 # jmdaemon; we just make sure that the usual nick signature
@@ -115,14 +53,8 @@ class DummyRpcClient(object):
 def on_connect(x):
     print('simulated on-connect')
 
-@defer.inlineCallbacks
 def on_welcome(mc):
     print('simulated on-welcome')
-    yield junk_pubmsgs(mc)
-    yield junk_longmsgs(mc)
-    yield junk_announce
-    yield junk_fill
-
 def on_disconnect(x):
     print('simulated on-disconnect')
 
@@ -155,19 +87,15 @@ def junk_announce(mc):
     mc._announce_orders(["!abc def gh 0001"]*30)
 
 def junk_fill(mc):
-    cpname = "irc_receiver"
     #send a fill with an invalid pubkey to the existing yg;
     #this should trigger a NaclError but should NOT kill it.
-    mc._privmsg(cpname, "fill", "0 10000000 abcdef")
+    mc._privmsg(nick2, "fill", "0 10000000 abcdef")
     #Try with ob flag
     mc._pubmsg("!reloffer stuff")
-    time.sleep(si)
-    #Trigger throttling with large messages
-    mc._privmsg(cpname, "tx", "aa"*5000)
-    time.sleep(si)
-    #with pytest.raises(CJPeerError) as e_info:
-    mc.send_error(cpname, "fly you fools!")
-    time.sleep(si)
+    # TODO: What happens if we send messages larger than the onion
+    # packet size limit? As per above, need real LN parsing.
+    mc._privmsg(nick2, "tx", "aa"*5000)
+    mc.send_error(nick2, "fly you fools!")
     return mc
 
 def getmc(nick):
@@ -179,6 +107,7 @@ def getmc(nick):
     mc.on_disconnect = on_disconnect
     mc.on_welcome = on_welcome
     mcc = MessageChannelCollection([mc])
+    mc.on_pubmsg_trigger = mcc.see_nick
     return dm, mc, mcc
 
 class LNOnionTest(unittest.TestCase):
@@ -202,7 +131,6 @@ class LNOnionTest(unittest.TestCase):
         jm_single().maker_timeout_sec = 1
         self.dm, self.mc, self.mcc = getmc("irc_publisher")
         self.mcc.run()
-        print("Got here")
 
     def test_all(self):
         # it's slightly simpler to test each functionality in series
@@ -214,22 +142,34 @@ class LNOnionTest(unittest.TestCase):
         assert self.mc.get_privmsg(nick2, "ioauth", tm,
                 source_nick=nick1) == nick1 + COMMAND_PREFIX + \
                nick2 + COMMAND_PREFIX + "ioauth " + tm
-        # now test the same messages using the full MC abstraction layer.
-        # unfortunately these are just "no crashing" tests for now,
-        # since we are not verifying reception anywhere:
         self.mcc.pubmsg(tm)
         # in order for us to privmsg a counterparty we need to think
-        # it's visible; to do that we mock a control message from the dn
+        # it's visible *and* connected, because *we* are the only
+        # directory. To do that we mock a control message from the dn
         # telling us that he's there:
         self.mc.receive_msg(mock_control_message1)
+        self.mc.receive_msg(mock_control_connected_message)
+        # and then we mock him sending out a pubmsg; this is needed,
+        # because msgchans only register nicks 'active' on that mc via
+        # the on_pubmsg_trigger; otherwise they might be connected, but they
+        # are not 'active':
+        self.mc.receive_msg(mock_receiver_pubmsg)
         # absence of 'peer not found' in response to this
         # privmsg will mean the above worked:
-        self.mcc.privmsg(nick2, "ioauth", tm)
+        self.mc._privmsg(nick2, "ioauth", tm)
         # check our peerinfo is right:
         sap = self.mc.self_as_peer       
         assert sap.peerid == '03df15dbd9e20c811cc5f4155745e89540a0b83f33978317cebe9dfc46c5253c55'
         assert sap.hostname == '127.0.0.1'
         assert sap.port == 9835
+        # we have no directory or non-directory peers right now:
+        assert self.mc.get_connected_directory_peers() == []
+        assert len(self.mc.get_connected_nondirectory_peers()) == 1
+        junk_pubmsgs(self.mc)
+        junk_longmsgs(self.mc)
+        junk_announce(self.mc)
+        junk_fill(self.mc)
+
 
     def tearDown(self):
         jm_single().config = self.old_config
