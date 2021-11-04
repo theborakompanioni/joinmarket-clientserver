@@ -400,7 +400,9 @@ class LNOnionMessageChannel(MessageChannel):
         encoded_privmsg = LNOnionMessage(self.get_privmsg(nick, cmd, msg),
                             JM_MESSAGE_TYPES["privmsg"]).encode()
         peerid = self.get_peerid_by_nick(nick)
-        peer = self.get_peer_by_id(peerid)
+        if peerid:
+            peer = self.get_peer_by_id(peerid)
+        # notice the order matters here!:
         if not peerid or not peer or not peer.is_connected:
             # If we are trying to message a peer via their nick, we
             # may not yet have a connection; then we just
