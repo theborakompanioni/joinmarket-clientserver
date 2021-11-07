@@ -40,7 +40,7 @@ http_get ()
 
 ln_deps_install ()
 {
-    ln_deps=( \
+    ln_deb_deps=( \
         'autoconf' \
         'automake' \
         'build-essential' \
@@ -53,7 +53,30 @@ ln_deps_install ()
         'zlib1g-dev' \
         'libsodium-dev' \
         'gettext' )
-    deb_deps_install "${ln_deps[@]}"
+
+    ln_dar_deps=( \
+        'autoconf' \
+        'automake' \
+        'libtool' \
+        'python3' \
+        'gmp' \
+        'gnu-sed' \
+        'gettext' \
+        'libsodium' )
+
+    if [[ ${use_os_deps_check} != '1' ]]; then
+        echo "Checking OS package manager's dependencies disabled. Trying to build."
+        return 0
+    elif [[ ${install_os} == 'debian' ]]; then
+        deb_deps_install "${ln_deb_deps[@]}"
+        return "$?"
+    elif [[ ${install_os} == 'darwin' ]]; then
+        dar_deps_install "${ln_dar_deps[@]}"
+        return "$?"
+    else
+        echo "OS can not be determined. Trying to build."
+        return 0
+    fi
 }
 
 deps_install ()
@@ -67,11 +90,13 @@ deps_install ()
         'libgmp-dev' \
         'python3-dev' \
         'virtualenv' \
-        'python3-pip' )
+        'python3-pip' \
+        'unzip' )
 
     darwin_deps=( \
         'automake' \
-        'libtool' )
+        'libtool' \
+        'unzip' )
 
     if ! is_python3; then
         echo "Python 2 is no longer supported. Please use a compatible Python 3 version."
@@ -173,7 +198,7 @@ dep_get ()
         return 1
     fi
     if [[ $1 == *zip ]]; then
-        unzip "${pkg_name}" -d ../
+        unzip -o "${pkg_name}" -d ../
     else
         tar -xzf "${pkg_name}" -C ../
     fi
@@ -307,10 +332,10 @@ clightning_install ()
     # note: the normal tarball source is broken and must not be used according to:
     # https://github.com/ElementsProject/lightning/issues/3900#issuecomment-668330656
     # we use links like:
-    # https://github.com/ElementsProject/lightning/releases/download/v0.10.1/clightning-v0.10.1.zip
-    clightning_version='clightning-v0.10.1'
-    clightning_lib_sha="9271e9e89d60332b66afedbf8d6eab2a4a488782ab400ee1f60667d73c5a9a96"
-    clightning_lib_url='https://github.com/ElementsProject/lightning/releases/download/v0.10.1'
+    # https://github.com/ElementsProject/lightning/releases/download/v0.10.2/clightning-v0.10.2.zip
+    clightning_version='clightning-v0.10.2'
+    clightning_lib_sha="3c9dcb686217b2efe0e988e90b95777c4591e3335e259e01a94af87e0bf01809"
+    clightning_lib_url='https://github.com/ElementsProject/lightning/releases/download/v0.10.2'
     if ! dep_get "${clightning_version}.zip" "${clightning_lib_sha}" "${clightning_lib_url}"; then
         return 1
     fi
@@ -436,9 +461,9 @@ Options:
 --disable-os-deps-check     skip OS package manager's dependency check
 --disable-secp-check        do not run libsecp256k1 tests (default is to run them)
 --python, -p                python version (only python3 versions are supported)
+--with-ln-messaging     build and use c-lightning for message channels
 --with-qt                   build the Qt GUI
 --without-qt                don't build the Qt GUI
---with-ln-messaging     build and use c-lightning for message channels
 "
                 return 1
                 ;;

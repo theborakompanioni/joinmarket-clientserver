@@ -630,7 +630,10 @@ class LNOnionMessageChannel(MessageChannel):
             )) + list(CONTROL_MESSAGE_TYPES.values())
         if msgtype not in all_ctrl:
             return False
-        log.debug("received control message: {},{}".format(msgtype, msgval))
+        # this is too noisy, but TODO, investigate allowing
+        # some kind of control message monitoring e.g. default-off
+        # log-to-file (we don't currently have a 'TRACE' level debug).
+        #log.debug("received control message: {},{}".format(msgtype, msgval))
         if msgtype == CONTROL_MESSAGE_TYPES["peerlist"]:
             # This is the base method of seeding connections;
             # a directory node can send this any time. We may well
