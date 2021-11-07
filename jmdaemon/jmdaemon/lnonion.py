@@ -269,8 +269,25 @@ class LNOnionPeer(object):
         if not (self.hostname and self.port > 0):
             raise LNOnionPeerConnectionError(
                 "Cannot connect without host, port info")
-        rpcclient.call("connect", [self.peer_location()])
+        try:
+            rpcclient.call("connect", [self.peer_location()])
+        except RpcError as e:
+            raise LNOnionPeerConnectionError(
+                "Connection to: {}failed with error: {}".format(
+                    self.peer_location(), repr(e)))
         self.is_connected = True
+
+    def try_to_connect(self, rpcclient: LightningRpc) -> None:
+        """ This method wraps LNOnionPeer.connect and accepts
+        any error if that fails.
+        """
+        try:
+            self.connect(rpcclient=rpcclient)
+        except LNOnionPeerConnectionError as e:
+            log.debug("Tried to connect but failed: {}".format(repr(e)))
+        except Exception as e:
+            log.warn("Got unexpected exception in connect attempt: {}".format(
+                repr(e)))
 
     def disconnect(self, rpcclient: LightningRpc) -> None:
         if not self.is_connected:
@@ -475,7 +492,10 @@ class LNOnionMessageChannel(MessageChannel):
             return
         for p in self.peers:
             log.info("Trying to connect to node: {}".format(p.peerid))
-            p.connect(self.rpc_client)
+            try:
+                p.connect(self.rpc_client)
+            except LNOnionPeerConnectionError:
+                pass
         # after all the connections are in place, we can
         # start our continuous request for peer updates:
         self.peer_request_loop = task.LoopingCall(self.send_getpeers)
@@ -742,8 +762,9 @@ class LNOnionMessageChannel(MessageChannel):
                 if not connection:
                     # Here, we have a full location string,
                     # and we are not currently connected. We
-                    # try to connect asynchronously:
-                    reactor.callLater(0.0, temp_p.connect, self.rpc_client)
+                    # try to connect asynchronously. We don't pay attention
+                    # to any return; this is opportunistic, only, currently.
+                    reactor.callLater(0.0, temp_p.try_to_connect, self.rpc_client)
                 return temp_p
             else:
                 p = self.get_peer_by_id(temp_p.peerid)
