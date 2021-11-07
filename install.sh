@@ -183,6 +183,7 @@ venv_setup ()
     pip install --upgrade pip
     pip install --upgrade setuptools
     pip install mako
+    pip install mrkd
     deactivate
 }
 
