@@ -536,7 +536,9 @@ class LNOnionMessageChannel(MessageChannel):
         }
         # TODO handle return:
         try:
-            self.rpc_client.call("sendonionmessage", payload)
+            # TODO: as of 0.10.2 this format is obsolete ("obs"),
+            # so we will need to change it soon:
+            self.rpc_client.call("sendobsonionmessage", payload)
         except RpcError as e:
             # This can happen when a peer disconnects, depending
             # on the timing:
