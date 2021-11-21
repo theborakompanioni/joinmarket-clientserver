@@ -10,6 +10,7 @@ from .schedule import human_readable_schedule_entry, tweak_tumble_schedule,\
     schedule_to_text
 from .wallet import BaseWallet, estimate_tx_fee, compute_tx_locktime, \
     FidelityBondMixin
+from .cryptoengine import EngineError
 from jmbitcoin import make_shuffled_tx, amount_to_str, mk_burn_script,\
                        PartiallySignedTransaction, CMutableTxOut,\
                        human_readable_transaction, Hash160
@@ -80,7 +81,13 @@ def direct_send(wallet_service, amount, mixdepth, destination, answeryes=False,
             return
 
     txtype = wallet_service.get_txtype()
-    outtype = wallet_service.get_outtype(destination)
+    try:
+        outtype = wallet_service.get_outtype(destination)
+    except EngineError:
+        # if the output is of a script type not currently
+        # handled by our wallet code, we can't use information
+        # to help us calculate fees, but fall back to default:
+        outtype = None
     if amount == 0:
         #doing a sweep
         utxos = wallet_service.get_utxos_by_mixdepth()[mixdepth]

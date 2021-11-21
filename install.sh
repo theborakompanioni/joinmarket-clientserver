@@ -241,6 +241,7 @@ libsecp256k1_build()
         --prefix "${jm_root}" \
         --enable-experimental \
         --enable-module-ecdh \
+        --enable-module-schnorrsig \
         --enable-benchmark=no \
         MAKE=$make
     $make
@@ -255,8 +256,8 @@ libsecp256k1_build()
 
 libsecp256k1_install()
 {
-    secp256k1_lib_tar='f2d9aeae6d5a7c7fbbba8bbb38b1849b784beef7'
-    secp256k1_lib_sha="bdcb0373cc830271733841cf507ad2bb95d61be558f5334c8ad304d127ee4da9"
+    secp256k1_lib_tar='7006f1b97fd8dbf4ef75771dd7c15185811c3f50'
+    secp256k1_lib_sha="ea70dd1e976f62e6544459eec3f0fb02f10b7fc960ebc9218c11a969deb9aeaf"
     secp256k1_lib_url='https://github.com/bitcoin-core/secp256k1/archive'
     if ! dep_get "${secp256k1_lib_tar}.tar.gz" "${secp256k1_lib_sha}" "${secp256k1_lib_url}"; then
         return 1

@@ -9,10 +9,15 @@ if sys.platform == "darwin":
     secp_name = "libsecp256k1.dylib"
 else:
     secp_name = "libsecp256k1.so"
+
+import bitcointx
 expected_secp_location = os.path.join(sys.prefix, "lib", secp_name)
 if os.path.exists(expected_secp_location):
-    import bitcointx
     bitcointx.set_custom_secp256k1_path(expected_secp_location)
+
+# immediately switch on 'experimental' features;
+# these are needed for taproot/Schnorr construction, spending.
+bitcointx.allow_secp256k1_experimental_modules()
 
 # Bitcoin network level utxo amount limit:
 DUST_THRESHOLD = 2730
