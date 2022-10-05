@@ -17,7 +17,7 @@ from hashlib import sha256
 from itertools import chain
 from decimal import Decimal
 from numbers import Integral
-from math import exp
+from math import exp, ceil
 
 
 from .configure import jm_single
@@ -75,12 +75,12 @@ def estimate_tx_fee(ins, outs, txtype='p2pkh', outtype=None, extra_bytes=0):
             btc.fee_per_kb_to_str(absurd_fee) + ", quitting.")
     if txtype in ['p2pkh', 'p2shMofN']:
         tx_estimated_bytes = btc.estimate_tx_size(ins, outs, txtype, outtype) + extra_bytes
-        return int((tx_estimated_bytes * fee_per_kb)/Decimal(1000.0))
+        return ceil((tx_estimated_bytes * fee_per_kb)/Decimal(1000.0))
     elif txtype in ['p2wpkh', 'p2sh-p2wpkh']:
         witness_estimate, non_witness_estimate = btc.estimate_tx_size(
             ins, outs, txtype, outtype)
         non_witness_estimate += extra_bytes
-        return int(int((
+        return ceil(ceil((
             non_witness_estimate + 0.25*witness_estimate)*fee_per_kb)/Decimal(1000.0))
     else:
         raise NotImplementedError("Txtype: " + txtype + " not implemented.")
