@@ -408,9 +408,9 @@ tor_build ()
 
 tor_install ()
 {
-    tor_version='tor-0.4.7.13'
+    tor_version='tor-0.4.8.1-alpha'
     tor_tar="${tor_version}.tar.gz"
-    tor_sha='2079172cce034556f110048e26083ce9bea751f3154b0ad2809751815b11ea9d'
+    tor_sha='f73719a8cec65ce473fae19485b3b89e767a26b20fa9e172052df2cfd4f92e51'
     tor_url='https://dist.torproject.org'
     tor_pubkeys='Tor.asc'
 
